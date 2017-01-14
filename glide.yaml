@@ -1,0 +1,3 @@
+package: golang-socket.io-minimal
+import:
+- package: github.com/googollee/go-socket.io
