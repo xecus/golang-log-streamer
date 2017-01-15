@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 )
 
@@ -25,11 +26,9 @@ func (s *customServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-
 	if terminal.IsTerminal(0) {
 		log.Fatal("no pipe")
 	}
-
 	ioServer := SocketIoServer()
 	wsServer := new(customServer)
 	wsServer.Server = ioServer
@@ -39,12 +38,12 @@ func main() {
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
 
-type BroadcastMessageModel struct {
+type BroadcastMessage struct {
 	Timestamp time.Time `json:"timestamp"`
 	Message   string    `json:"message"`
 }
 
-func (p BroadcastMessageModel) jsonDump() string {
+func (p BroadcastMessage) jsonDump() string {
 	bytes, err := json.Marshal(p)
 	if err != nil {
 		log.Fatal(err)
@@ -53,12 +52,11 @@ func (p BroadcastMessageModel) jsonDump() string {
 }
 
 func pipeProcesser(clientList map[string]*Client) {
-
 	go func() {
 		scanner := bufio.NewScanner(os.Stdin)
 		for scanner.Scan() {
 			line := scanner.Text()
-			p := BroadcastMessageModel{time.Now(), line}
+			p := BroadcastMessage{time.Now(), line}
 			s := p.jsonDump()
 			for _, v := range clientList {
 				v.Socket.Emit("hoge", s)
@@ -100,41 +98,48 @@ func SocketIoServer() *socketio.Server {
 		log.Fatal(err)
 	}
 	clientList := map[string]*Client{}
+	lock := sync.RWMutex{}
 	go pipeProcesser(clientList)
 
 	server.On("connection", func(so socketio.Socket) {
 
 		log.Println("[Connected] " + so.Id())
-		clientList[so.Id()] = &Client{so, "", nil}
 		so.Join("chat")
+		lock.Lock()
+		clientList[so.Id()] = &Client{so, "", nil}
+		lock.Unlock()
 
 		so.On("authRequest", func(msg string) {
 			parsedObj := struct {
 				Token string
 			}{msg}
 			if err := json.Unmarshal([]byte(msg), &parsedObj); err != nil {
-				log.Println("[authRequest] JsonParseError")
+				log.Println("[authRequest] " + so.Id() + " JsonParseError")
 				return
 			}
+			lock.Lock()
 			clientList[so.Id()].Jwt = parsedObj.Token
-			if _, err := clientList[so.Id()].jwtCheck(); err != nil {
-				log.Println("[authRequest] Error")
+			_, err := clientList[so.Id()].jwtCheck()
+			lock.Unlock()
+			if err != nil {
+				log.Println("[authRequest] " + so.Id() + " Failed")
 			} else {
-				log.Println("[authRequest] Successfully")
+				log.Println("[authRequest] " + so.Id() + " Successfully")
 			}
 		})
 
 		so.On("control", func(msg string) {
-			log.Println("control [" + msg + "]")
+			log.Println("control " + so.Id() + "[" + msg + "]")
 			// log.Println("emit:", so.Emit("chat message", msg))
 			// so.BroadcastTo("chat", "chat message", msg)
 		})
 
 		so.On("disconnection", func() {
+			lock.Lock()
 			delete(clientList, so.Id())
+			lock.Unlock()
 			log.Println("[Disconnected] " + so.Id())
 		})
-
 	})
 	server.On("error", func(so socketio.Socket, err error) {
 		log.Println("error:", err)
