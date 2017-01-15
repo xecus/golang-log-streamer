@@ -56,6 +56,7 @@ func pipeProcesser(clientList map[string]*Client) {
 		scanner := bufio.NewScanner(os.Stdin)
 		for scanner.Scan() {
 			line := scanner.Text()
+			log.Println("STDIN=[" + line + "]")
 			p := BroadcastMessage{time.Now(), line}
 			s := p.jsonDump()
 			for _, v := range clientList {
