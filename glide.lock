@@ -1,6 +1,8 @@
 hash: 7641361430a449da976d9e619d2fd2e57aeab8c396ed65f17314c0f8cf22ef91
-updated: 2017-01-14T20:49:40.106555116Z
+updated: 2017-01-15T05:55:20.093026369Z
 imports:
+- name: github.com/dgrijalva/jwt-go
+  version: a601269ab70c205d26370c16f7c81e9017c14e04
 - name: github.com/googollee/go-engine.io
   version: ca9ced27e02c880970ee7726f9814f8a9c55d777
   subpackages:

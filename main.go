@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	//"github.com/dgrijalva/jwt-go"
 	"github.com/googollee/go-socket.io"
 	"golang.org/x/crypto/ssh/terminal"
 	"log"
@@ -85,8 +86,12 @@ func SocketIoServer() *socketio.Server {
 		soList[so.Id()] = so
 		so.Join("chat")
 
-		so.On("msg", func(msg string) {
-			log.Println("RECV [" + msg + "]")
+		so.On("authRequest", func(msg string) {
+			log.Println("authRequest [" + msg + "]")
+		})
+
+		so.On("control", func(msg string) {
+			log.Println("control [" + msg + "]")
 			// log.Println("emit:", so.Emit("chat message", msg))
 			// so.BroadcastTo("chat", "chat message", msg)
 		})
