@@ -3,7 +3,8 @@ package main
 import (
 	"bufio"
 	"encoding/json"
-	//"github.com/dgrijalva/jwt-go"
+	"fmt"
+	"github.com/dgrijalva/jwt-go"
 	"github.com/googollee/go-socket.io"
 	"golang.org/x/crypto/ssh/terminal"
 	"log"
@@ -38,12 +39,12 @@ func main() {
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
 
-type Packet struct {
+type BroadcastMessageModel struct {
 	Timestamp time.Time `json:"timestamp"`
 	Message   string    `json:"message"`
 }
 
-func (p Packet) json() string {
+func (p BroadcastMessageModel) json() string {
 	bytes, err := json.Marshal(p)
 	if err != nil {
 		log.Fatal(err)
@@ -57,7 +58,7 @@ func pipeProcesser(soList map[string]socketio.Socket) {
 		scanner := bufio.NewScanner(os.Stdin)
 		for scanner.Scan() {
 			line := scanner.Text()
-			p := Packet{time.Now(), line}
+			p := BroadcastMessageModel{time.Now(), line}
 			s := p.json()
 			for _, so := range soList {
 				so.Emit("hoge", s)
@@ -71,6 +72,18 @@ func pipeProcesser(soList map[string]socketio.Socket) {
 	}()
 }
 
+type AuthRequestModel struct {
+	Token string `json:"token"`
+}
+
+func parseAuthRequestModel(s string) AuthRequestModel {
+	var a AuthRequestModel
+	err := json.Unmarshal([]byte(s), &a)
+	if err != nil {
+	}
+	return a
+}
+
 func SocketIoServer() *socketio.Server {
 	server, err := socketio.NewServer(nil)
 	if err != nil {
@@ -82,12 +95,26 @@ func SocketIoServer() *socketio.Server {
 	server.On("connection", func(so socketio.Socket) {
 
 		log.Println("[Connected] " + so.Id())
-
 		soList[so.Id()] = so
 		so.Join("chat")
 
 		so.On("authRequest", func(msg string) {
-			log.Println("authRequest [" + msg + "]")
+			authRequest := parseAuthRequestModel(msg)
+			tokenString := authRequest.Token
+			hmacSampleSecret := []byte("secret key")
+			token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+				if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+					return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
+				}
+				return hmacSampleSecret, nil
+			})
+			if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+				log.Println("[authRequest] Successflly")
+				fmt.Println(claims)
+			} else {
+				log.Println("[authRequest] Unauthorized")
+				fmt.Println(err)
+			}
 		})
 
 		so.On("control", func(msg string) {
