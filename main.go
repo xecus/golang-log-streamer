@@ -44,7 +44,7 @@ type BroadcastMessageModel struct {
 	Message   string    `json:"message"`
 }
 
-func (p BroadcastMessageModel) json() string {
+func (p BroadcastMessageModel) jsonDump() string {
 	bytes, err := json.Marshal(p)
 	if err != nil {
 		log.Fatal(err)
@@ -59,7 +59,7 @@ func pipeProcesser(soList map[string]socketio.Socket) {
 		for scanner.Scan() {
 			line := scanner.Text()
 			p := BroadcastMessageModel{time.Now(), line}
-			s := p.json()
+			s := p.jsonDump()
 			for _, so := range soList {
 				so.Emit("hoge", s)
 			}
