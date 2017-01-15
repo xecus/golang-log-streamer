@@ -52,7 +52,7 @@ func (p BroadcastMessageModel) jsonDump() string {
 	return string(bytes)
 }
 
-func pipeProcesser(soList map[string]socketio.Socket) {
+func pipeProcesser(clientList map[string]*Client) {
 
 	go func() {
 		scanner := bufio.NewScanner(os.Stdin)
@@ -60,28 +60,38 @@ func pipeProcesser(soList map[string]socketio.Socket) {
 			line := scanner.Text()
 			p := BroadcastMessageModel{time.Now(), line}
 			s := p.jsonDump()
-			for _, so := range soList {
-				so.Emit("hoge", s)
+			for _, v := range clientList {
+				v.Socket.Emit("hoge", s)
 			}
 
 		}
 		if err := scanner.Err(); err != nil {
 			log.Println("Error: could not reading standard input")
 		}
-		log.Println("Owari")
 	}()
 }
 
-type AuthRequestModel struct {
-	Token string `json:"token"`
+type Client struct {
+	Socket    socketio.Socket
+	Jwt       string
+	ParsedJwt jwt.MapClaims
 }
 
-func parseAuthRequestModel(s string) AuthRequestModel {
-	var a AuthRequestModel
-	err := json.Unmarshal([]byte(s), &a)
-	if err != nil {
+func (c *Client) jwtCheck() (jwt.MapClaims, error) {
+	hmacSecret := []byte("secret key")
+	tokenString := c.Jwt
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
+		}
+		return hmacSecret, nil
+	})
+	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+		c.ParsedJwt = claims
+		return claims, nil
+	} else {
+		return nil, err
 	}
-	return a
 }
 
 func SocketIoServer() *socketio.Server {
@@ -89,31 +99,28 @@ func SocketIoServer() *socketio.Server {
 	if err != nil {
 		log.Fatal(err)
 	}
-	soList := map[string]socketio.Socket{}
-	go pipeProcesser(soList)
+	clientList := map[string]*Client{}
+	go pipeProcesser(clientList)
 
 	server.On("connection", func(so socketio.Socket) {
 
 		log.Println("[Connected] " + so.Id())
-		soList[so.Id()] = so
+		clientList[so.Id()] = &Client{so, "", nil}
 		so.Join("chat")
 
 		so.On("authRequest", func(msg string) {
-			authRequest := parseAuthRequestModel(msg)
-			tokenString := authRequest.Token
-			hmacSampleSecret := []byte("secret key")
-			token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-				if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-					return nil, fmt.Errorf("Unexpected signing method: %v", token.Header["alg"])
-				}
-				return hmacSampleSecret, nil
-			})
-			if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
-				log.Println("[authRequest] Successflly")
-				fmt.Println(claims)
+			parsedObj := struct {
+				Token string
+			}{msg}
+			if err := json.Unmarshal([]byte(msg), &parsedObj); err != nil {
+				log.Println("[authRequest] JsonParseError")
+				return
+			}
+			clientList[so.Id()].Jwt = parsedObj.Token
+			if _, err := clientList[so.Id()].jwtCheck(); err != nil {
+				log.Println("[authRequest] Error")
 			} else {
-				log.Println("[authRequest] Unauthorized")
-				fmt.Println(err)
+				log.Println("[authRequest] Successfully")
 			}
 		})
 
@@ -124,7 +131,7 @@ func SocketIoServer() *socketio.Server {
 		})
 
 		so.On("disconnection", func() {
-			delete(soList, so.Id())
+			delete(clientList, so.Id())
 			log.Println("[Disconnected] " + so.Id())
 		})
 
